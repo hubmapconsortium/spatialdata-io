@@ -114,6 +114,9 @@ def cosmx(
     obs[CosmxKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
     obs.rename_axis(None, inplace=True)
     obs.index = obs.index.astype(str).str.cat(obs[CosmxKeys.FOV].values, sep="_")
+    if 'cell_id' in obs.columns:
+        obs['cell_identifier'] = obs['cell_id']
+        obs = obs.drop('cell_id', inplace=False, axis=1)
 
     common_index = obs.index.intersection(counts.index)
 
