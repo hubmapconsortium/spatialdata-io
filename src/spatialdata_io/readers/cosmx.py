@@ -293,5 +293,7 @@ def cosmx(
     #             logg.warning(f"FOV `{str(fov)}` does not exist, skipping it.")
     #             continue
 
+    print(table.obs.columns)
+
     sdata = SpatialData(images=images, labels=labels, points=points, tables={"table": table})
     return _set_reader_metadata(sdata, "cosmx")
