@@ -120,6 +120,9 @@ def cosmx(
 
     common_index = obs.index.intersection(counts.index)
 
+    if 'cell' in counts.columns:
+        counts.pop('cell')
+
     adata = AnnData(
         csr_matrix(counts.loc[common_index, :].values),
         dtype=counts.values.dtype,
