@@ -23,6 +23,8 @@ urls.Source = "https://github.com/scverse/spatialdata-io"
 urls.Home-page = "https://github.com/scverse/spatialdata-io"
 dependencies = [
     "anndata",
+    "bioio",
+    "bioio_tifffile",
     "click",
     "numpy",
     "scanpy",

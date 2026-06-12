@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,8 @@ from spatialdata.transformations.transformations import Affine, Identity
 from spatialdata_io._constants._constants import CosmxKeys
 from spatialdata_io._docs import inject_docs
 from spatialdata_io.readers._utils._utils import _set_reader_metadata
+from bioio import BioImage
+from bioio_tifffile import Reader
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -191,7 +194,19 @@ def cosmx(
             fov = str(int(pat.findall(fname)[0]))
             if fov in fovs_counts:
                 aff = affine_transforms_to_global[fov]
-                im = imread(path / CosmxKeys.IMAGES_DIR / fname, **imread_kwargs).squeeze()
+                img = BioImage(path / CosmxKeys.IMAGES_DIR / fname)
+                im = img.data.squeeze()
+                metadata_dict = json.loads(img.metadata)
+                mapping = {item['Fluorophore']['ChannelId']:item['BiologicalTarget'] for item in metadata_dict['MorphologyKit']['MorphologyReagents']}
+                channel_string = metadata_dict['ChannelOrder']
+                channel_list = []
+                for i in range(len(channel_string)):
+                    if channel_string[i] in mapping:
+                        channel_list.append(mapping[channel_string[i]])
+                    else:
+                        channel_list.append('Autofluorescence')
+
+
                 flipped_im = da.flip(im, axis=0)
                 parsed_im = Image2DModel.parse(
                     flipped_im,
@@ -200,9 +215,10 @@ def cosmx(
                         "global": aff,
                         "global_only_image": aff,
                     },
-                    dims=("y", "x", "c"),
+                    dims=("c", "y", "x"),
                     rgb=None,
                     **image_models_kwargs,
+                    c_coords=channel_list,
                 )
                 images[f"{fov}_image"] = parsed_im
             else:
