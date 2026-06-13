@@ -97,7 +97,7 @@ def cosmx_proteomics(
 
     if dataset_id is None:
         counts_files = find_files(path, f"*{CosmxProteomicsKeys.COUNTS_SUFFIX}*")
-        if len(counts_files) == 1:
+        if len(list(counts_files)) == 1:
             found = re.match(rf"(.*)_{CosmxProteomicsKeys.COUNTS_SUFFIX}*", counts_files[0].name)
             if found:
                 dataset_id = found.group(1)
