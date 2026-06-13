@@ -45,12 +45,9 @@ def find_file_full_path(directory: Path, pattern: str) -> Path:
             if filepath.full_match(pattern):
                 return filepath
 
-def find_directory(dir_name:str)->Path:
-    pass
-
-def read_plex_text(dir_name:str)->pd.DataFrame:
+def read_plex_text(directory:Path)->pd.DataFrame:
     plex_text_pattern = "plex*.txt"
-    plex_text_file = find_file(find_directory(dir_name), plex_text_pattern)
+    plex_text_file = find_file(directory, plex_text_pattern)
     plex_text_df = pd.read_csv(plex_text_file)
     plex_text_mapping = {plex_text_df.at[i, 'ProbeID']:plex_text_df.at[i, 'DisplayName'] for i in plex_text_df.index}
     return plex_text_mapping
