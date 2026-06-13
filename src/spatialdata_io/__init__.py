@@ -8,6 +8,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     # readers
     "codex": "spatialdata_io.readers.codex",
     "cosmx": "spatialdata_io.readers.cosmx",
+    "cosmx_proteomics": "spatialdata_io.readers.cosmx_proteomicsq:q",
     "curio": "spatialdata_io.readers.curio",
     "dbit": "spatialdata_io.readers.dbit",
     "macsima": "spatialdata_io.readers.macsima",

@@ -64,6 +64,13 @@ def cosmx_wrapper(input: str, output: str, dataset_id: str | None = None, transc
     sdata = cosmx(input, dataset_id=dataset_id, transcripts=transcripts)
     sdata.write(output)
 
+@cli.command(name="cosmx_proteomics")
+@_input_output_click_options
+@click.option("--dataset-id", type=str, default=None, help="Name of the dataset [default: None]")
+def cosmx_proteomics_wrapper(input: str, output: str, dataset_id: str | None = None) -> None:
+    """Cosmic conversion to SpatialData."""
+    sdata = cosmx_proteomics(input, dataset_id=dataset_id)  # type: ignore[name-defined] # noqa: F821
+    sdata.write(output)
 
 @cli.command(name="curio")
 @_input_output_click_options
