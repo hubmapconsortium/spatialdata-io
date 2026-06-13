@@ -38,6 +38,7 @@ IMAGETYPE_DICT = {
     "B": "bleach",  # v1
     "AntigenCycle": "stain",  # v0
     "S": "stain",  # v1
+    "AF": "autofluorescence",  # v1
 }
 
 
@@ -47,7 +48,6 @@ class MACSimaParsingStyle(ModeEnum):
     PROCESSED_SINGLE_FOLDER = "processed_single_folder"
     PROCESSED_MULTIPLE_FOLDERS = "processed_multiple_folders"
     RAW = "raw"
-    AUTO = "auto"
 
 
 @dataclass
@@ -61,6 +61,8 @@ class ChannelMetadata:
     roi: int
     fluorophore: str
     exposure: float
+    translation_x: int
+    translation_y: int
     clone: str | None = None  # For example DAPI doesnt have a clone
 
 
@@ -103,6 +105,8 @@ class MultiChannelImage:
                     fluorophore=metadata["fluorophore"],
                     clone=metadata["clone"],
                     exposure=metadata["exposure"],
+                    translation_x=metadata["translation_x"],
+                    translation_y=metadata["translation_y"],
                 )
             )
 
@@ -125,12 +129,11 @@ class MultiChannelImage:
                 ),
             )
         imgs = [imread(img, **imread_kwargs) for img in valid_files]
-        for img, path in zip(imgs, valid_files, strict=True):
-            if img.shape[1:] != imgs[0].shape[1:]:
-                raise ValueError(
-                    f"Images are not all the same size. Image {path} has shape {img.shape[1:]} while the first image "
-                    f"{valid_files[0]} has shape {imgs[0].shape[1:]}"
-                )
+
+        # Pad images to same dimensions if necessary
+        if cls._check_for_differing_xy_dimensions(imgs):
+            imgs = cls._pad_images(imgs, channel_metadata)
+
         # create MultiChannelImage object with imgs and metadata
         output = cls(data=imgs, metadata=channel_metadata)
         return output
@@ -220,10 +223,81 @@ class MultiChannelImage:
     def get_stack(self) -> da.Array:
         return da.stack(self.data, axis=0).squeeze(axis=1)
 
+    @staticmethod
+    def _check_for_differing_xy_dimensions(imgs: list[da.Array]) -> bool:
+        """Checks whether any of the images have differing extent in dimensions X and Y."""
+        # Shape has order CYX
+        dims_x = [x.shape[2] for x in imgs]
+        dims_y = [x.shape[1] for x in imgs]
+
+        dims_x_different = len(set(dims_x)) != 1
+        dims_y_different = len(set(dims_y)) != 1
+
+        different_dimensions = any([dims_x_different, dims_y_different])
+
+        warnings.warn(
+            "Supplied images have different dimensions!",
+            UserWarning,
+            stacklevel=2,
+        )
+
+        return different_dimensions
+
+    @staticmethod
+    def _pad_images(imgs: list[da.Array], channel_metadata: list[ChannelMetadata]) -> list[da.Array]:
+        """Pad all images to the same dimensions in X and Y with 0s.
+
+        Padding obeys translations stored in ome metadata.
+        If no translations are found, padding is added only away from the origin:
+        on the right side for X and at the
+        bottom for Y, so the top-left corner of each image stays aligned.
+        """
+        min_translation_x = min(metadata.translation_x for metadata in channel_metadata)
+        min_translation_y = min(metadata.translation_y for metadata in channel_metadata)
+        normalized_translations_x = [metadata.translation_x - min_translation_x for metadata in channel_metadata]
+        normalized_translations_y = [metadata.translation_y - min_translation_y for metadata in channel_metadata]
+
+        dims_x_max = max(
+            img.shape[2] + translation_x for img, translation_x in zip(imgs, normalized_translations_x, strict=True)
+        )
+        dims_y_max = max(
+            img.shape[1] + translation_y for img, translation_y in zip(imgs, normalized_translations_y, strict=True)
+        )
+
+        warnings.warn(
+            f"Padding images with 0s to same size of ({dims_y_max}, {dims_x_max})",
+            UserWarning,
+            stacklevel=2,
+        )
+
+        padded_imgs = []
+        for img, translation_x, translation_y in zip(
+            imgs, normalized_translations_x, normalized_translations_y, strict=True
+        ):
+            pad_y_prepend = translation_y
+            pad_x_prepend = translation_x
+            # For appending, we check how much space is already covered by the original image, and we take into account how many pixels were prepended
+            # If there still is a difference, we append 0 to get to the same image size
+            pad_y_append = dims_y_max - img.shape[1] - pad_y_prepend
+            pad_x_append = dims_x_max - img.shape[2] - pad_x_prepend
+            # Only pad if necessary
+            if (pad_x_prepend, pad_x_append, pad_y_prepend, pad_y_append) != (0, 0, 0, 0):
+                pad_width = (
+                    # c axis: no pad
+                    (0, 0),
+                    (pad_y_prepend, pad_y_append),
+                    (pad_x_prepend, pad_x_append),
+                )
+
+                img = da.pad(img, pad_width, mode="constant", constant_values=0)
+            padded_imgs.append(img)
+
+        return padded_imgs
+
 
 def macsima(
     path: str | Path,
-    parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.AUTO,
+    parsing_style: MACSimaParsingStyle | str = MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER,
     filter_folder_names: list[str] | None = None,
     imread_kwargs: Mapping[str, Any] = MappingProxyType({}),
     subset: int | None = None,
@@ -244,6 +318,8 @@ def macsima(
     This function reads images from a MACSima cyclic imaging experiment. MACSima data follows the OME-TIFF specificiation.
     All metadata is parsed from the OME metadata. The exact metadata schema can change between software versions of MACSiQView.
     As there is no public specification of the metadata fields used, please consider the provided test data sets as ground truth to guide development.
+    If images from different cycles differ in spatial dimensions, they are zero-padded on the right (X) and bottom (Y) to match
+    the largest dimensions, keeping the top-left origin aligned; a warning is emitted in that case.
 
     .. seealso::
 
@@ -254,7 +330,8 @@ def macsima(
     path
         Path to the directory containing the data.
     parsing_style
-        Parsing style to use. If ``auto``, the parsing style is determined based on the contents of the path.
+        Parsing style to use. If ``processed_single_folder``, all subfolders of ``path`` are combined into a stack.
+        If ``processed_multiple_folders``, a stack is created for each folder directly beneath ``path``.
     filter_folder_names
         List of folder names to filter out when parsing multiple folders.
     imread_kwargs
@@ -294,19 +371,13 @@ def macsima(
     if not isinstance(parsing_style, MACSimaParsingStyle):
         parsing_style = MACSimaParsingStyle(parsing_style)
 
-    if parsing_style == MACSimaParsingStyle.AUTO:
-        assert path.is_dir(), f"Path {path} is not a directory."
-
-        if any(p.suffix in [".tif", ".tiff"] for p in path.iterdir()):
-            # if path contains tifs, do parse_processed_folder on path
-            parsing_style = MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER
-        elif all(p.is_dir() for p in path.iterdir() if not p.name.startswith(".")):
-            # if path contains only folders or hidden files, do parse_processed_folder on each folder
-            parsing_style = MACSimaParsingStyle.PROCESSED_MULTIPLE_FOLDERS
-        else:
-            raise ValueError(f"Cannot determine parsing style for path {path}. Please specify the parsing style.")
-
     if parsing_style == MACSimaParsingStyle.PROCESSED_SINGLE_FOLDER:
+        if filter_folder_names:
+            warnings.warn(
+                "single_processed_folder was requested but filter_folder_names was specified. Note that it is ignored here, filtering only happens for processed_multi_folders!",
+                UserWarning,
+                stacklevel=2,
+            )
         return parse_processed_folder(
             path=path,
             imread_kwargs=imread_kwargs,
@@ -331,6 +402,9 @@ def macsima(
             for p in path.iterdir()
             if p.is_dir() and (not filter_folder_names or not any(f in p.name for f in filter_folder_names))
         ]:
+            if not len(list(p.glob("*.tif*"))):
+                warnings.warn(f"No tif files found in {p}, skipping it!", UserWarning, stacklevel=2)
+                continue
             sdatas[p.stem] = parse_processed_folder(
                 path=p,
                 imread_kwargs=imread_kwargs,
@@ -412,6 +486,25 @@ def _get_software_major_version(version: str) -> int:
     logger.debug(f"Found major software version {major}")
 
     return major
+
+
+def _get_translations(ome: OME) -> dict[str, int]:
+    try:
+        translations = {
+            "translation_x": ome.images[0].pixels.planes[0].position_x,
+            "translation_y": ome.images[0].pixels.planes[0].position_y,
+        }
+        # If the position attributes are not present the values will be None and we default to (0,0)
+        if any(v is None for v in translations.values()):
+            logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
+            translations = {"translation_x": 0, "translation_y": 0}
+
+    # In case the ome is faulty, also default to (0,0)
+    except AttributeError:
+        logger.debug(f"No translation found for {ome.images[0].name}, defaulting to (0, 0)")
+        translations = {"translation_x": 0, "translation_y": 0}
+
+    return translations
 
 
 def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
@@ -499,7 +592,7 @@ def _parse_v0_ome_metadata(ome: OME) -> dict[str, Any]:
 
     # Harmonize imagetype across versions
     if metadata["imagetype"]:
-        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+        metadata["imagetype"] = IMAGETYPE_DICT.get(metadata["imagetype"], metadata["imagetype"])
 
     return metadata
 
@@ -579,7 +672,7 @@ def _parse_v1_ome_metadata(ome: OME) -> dict[str, Any]:
 
     # Harmonize imagetype across versions
     if metadata["imagetype"]:
-        metadata["imagetype"] = IMAGETYPE_DICT[metadata["imagetype"]]
+        metadata["imagetype"] = IMAGETYPE_DICT.get(metadata["imagetype"], metadata["imagetype"])
 
     return metadata
 
@@ -591,11 +684,15 @@ def _parse_ome_metadata(ome: OME) -> dict[str, Any]:
     major = _get_software_major_version(version_str)
 
     if major == 0:
-        return _parse_v0_ome_metadata(ome)
+        metadata = _parse_v0_ome_metadata(ome)
     elif major == 1:
-        return _parse_v1_ome_metadata(ome)
+        metadata = _parse_v1_ome_metadata(ome)
     else:
         raise ValueError("Unknown software version, cannot determine parser")
+
+    translations = _get_translations(ome)
+    metadata.update(translations)
+    return metadata
 
 
 def parse_metadata(path: Path) -> dict[str, Any]:
@@ -624,7 +721,7 @@ def parse_processed_folder(
     nuclei_channel_name: str = "DAPI",
     split_threshold_nuclei_channel: int | None = 2,
     skip_rounds: list[int] | None = None,
-    file_pattern: str = "*.tif*",
+    file_pattern: str = "**/*.tif*",
     include_cycle_in_channel_name: bool = False,
 ) -> SpatialData:
     """Parse a single folder containing images from a cyclical imaging platform."""
@@ -759,6 +856,7 @@ def create_table(mci: MultiChannelImage) -> ad.AnnData:
     clones = mci.get_clones()
     exposures = mci.get_exposures()
 
+    # We dont add the translations, because they are usually not interesting for the user
     df = pd.DataFrame(
         {
             "name": names,
