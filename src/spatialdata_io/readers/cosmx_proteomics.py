@@ -121,10 +121,10 @@ def cosmx_proteomics(
     if not labels_dir.exists():
         raise FileNotFoundError(f"Labels directory not found: {labels_dir}.")
 
-    counts = pd.read_csv(path / counts_file, header=0, index_col=CosmxProteomicsKeys.INSTANCE_KEY)
+    counts = pd.read_csv(counts_file, header=0, index_col=CosmxProteomicsKeys.INSTANCE_KEY)
     counts.index = counts.index.astype(str).str.cat(counts.pop(CosmxProteomicsKeys.FOV).astype(str).values, sep="_")
 
-    obs = pd.read_csv(path / meta_file, header=0, index_col=CosmxProteomicsKeys.INSTANCE_KEY)
+    obs = pd.read_csv(meta_file, header=0, index_col=CosmxProteomicsKeys.INSTANCE_KEY)
     obs[CosmxProteomicsKeys.FOV] = pd.Categorical(obs[CosmxProteomicsKeys.FOV].astype(str))
     obs[CosmxProteomicsKeys.REGION_KEY] = pd.Categorical(obs[CosmxProteomicsKeys.FOV].astype(str).apply(lambda s: s + "_labels"))
     obs[CosmxProteomicsKeys.INSTANCE_KEY] = obs.index.astype(np.int64)
