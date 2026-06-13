@@ -34,6 +34,7 @@ __all__ = [
     # readers
     "codex",
     "cosmx",
+    "cosmx_proteomics",
     "curio",
     "dbit",
     "macsima",
