@@ -29,28 +29,28 @@ if TYPE_CHECKING:
 
 __all__ = ["cosmx_proteomics"]
 
-def find_files(directory: Path, pattern: str) -> Iterable[Path]:
+def find_file(directory: Path, pattern: str) -> Path:
     for dirpath_str, dirnames, filenames in os.walk(directory):
         dirpath = Path(dirpath_str)
         for filename in filenames:
             filepath = dirpath / filename
             if filepath.match(pattern):
-                yield filepath
+                return filepath
 
-def find_files_full_path(directory: Path, pattern: str) -> Iterable[Path]:
+def find_file_full_path(directory: Path, pattern: str) -> Path:
     for dirpath_str, dirnames, filenames in os.walk(directory):
         dirpath = Path(dirpath_str)
         for filename in filenames:
             filepath = dirpath / filename
             if filepath.full_match(pattern):
-                yield filepath
+                return filepath
 
 def find_directory(dir_name:str)->Path:
     pass
 
 def read_plex_text(dir_name:str)->pd.DataFrame:
     plex_text_pattern = "plex*.txt"
-    plex_text_file = find_files(find_directory(dir_name), plex_text_pattern)
+    plex_text_file = find_file(find_directory(dir_name), plex_text_pattern)
     plex_text_df = pd.read_csv(plex_text_file)
     plex_text_mapping = {plex_text_df.at[i, 'ProbeID']:plex_text_df.at[i, 'DisplayName'] for i in plex_text_df.index}
     return plex_text_mapping
@@ -96,22 +96,22 @@ def cosmx_proteomics(
     # tries to infer dataset_id from the name of the counts file
 
     if dataset_id is None:
-        counts_files = find_files(path, f"*{CosmxProteomicsKeys.COUNTS_SUFFIX}*")
-        if len(list(counts_files)) == 1:
-            found = re.match(rf"(.*)_{CosmxProteomicsKeys.COUNTS_SUFFIX}*", counts_files[0].name)
+        counts_file = find_file(path, f"*{CosmxProteomicsKeys.COUNTS_SUFFIX}*")
+        if counts_file:
+            found = re.match(rf"(.*)_{CosmxProteomicsKeys.COUNTS_SUFFIX}*", counts_file.name)
             if found:
                 dataset_id = found.group(1)
     if dataset_id is None:
         raise ValueError("Could not infer `dataset_id` from the name of the counts file. Please specify it manually.")
 
     # check for file existence
-    counts_file = find_files(path, f"*{CosmxProteomicsKeys.COUNTS_SUFFIX}*")[0]
+    counts_file = find_file(path, f"*{CosmxProteomicsKeys.COUNTS_SUFFIX}*")
     if not counts_file.exists():
         raise FileNotFoundError(f"Counts file not found: {counts_file}.")
-    meta_file = find_files(path, f"{dataset_id}_{CosmxProteomicsKeys.METADATA_SUFFIX}*")
+    meta_file = find_file(path, f"{dataset_id}_{CosmxProteomicsKeys.METADATA_SUFFIX}*")
     if not meta_file.exists():
         raise FileNotFoundError(f"Metadata file not found: {meta_file}.")
-    fov_file = find_files(path, f"{dataset_id}_{CosmxProteomicsKeys.FOV_SUFFIX}*")
+    fov_file = find_file(path, f"{dataset_id}_{CosmxProteomicsKeys.FOV_SUFFIX}*")
     if not fov_file.exists():
         raise FileNotFoundError(f"Found field of view file: {fov_file}.")
     images_dir = path / CosmxProteomicsKeys.IMAGES_DIR
@@ -208,7 +208,7 @@ def cosmx_proteomics(
                 multi_channel_img = np.zeroes((num_channels, num_dims[0], num_dims[1]))
                 for i, channel in enumerate(channel_mapping):
                     img_path_template = f"**/{fov}/*/ProteinImages/*{channel}"
-                    img_path = find_files_full_path(path, img_path_template)
+                    img_path = find_file_full_path(path, img_path_template)
                     multi_channel_img[i] = imread(img_path, **imread_kwargs).squeeze()
 
                 flipped_im = da.flip(multi_channel_img, axis=0)
@@ -239,7 +239,7 @@ def cosmx_proteomics(
                 multi_channel_mask = np.zeroes((num_channels, num_dims[0], num_dims[1]))
                 for i, channel in enumerate(channel_mapping):
                     label_path_template = f"**/{fov}/*/ProteinMasks/*{channel}"
-                    label_path = find_files_full_path(path, label_path_template)
+                    label_path = find_file_full_path(path, label_path_template)
                     multi_channel_mask[i] = imread(label_path, **imread_kwargs).squeeze()
 
                 flipped_la = da.flip(multi_channel_mask, axis=0)
