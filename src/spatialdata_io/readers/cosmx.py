@@ -215,7 +215,7 @@ def cosmx(
                         "global": aff,
                         "global_only_image": aff,
                     },
-                    dims=("c", "y", "x"),
+                    dims=("c", "x", "y"),
                     rgb=None,
                     **image_models_kwargs,
                     c_coords=channel_list,
@@ -232,7 +232,8 @@ def cosmx(
             if fov in fovs_counts:
                 aff = affine_transforms_to_global[fov]
                 la = imread(path / CosmxKeys.LABELS_DIR / fname, **imread_kwargs).squeeze()
-                flipped_la = da.flip(la, axis=0)
+                #flipped_la = da.flip(la, axis=0)
+                flipped_la = la
                 parsed_la = Labels2DModel.parse(
                     flipped_la,
                     transformations={
